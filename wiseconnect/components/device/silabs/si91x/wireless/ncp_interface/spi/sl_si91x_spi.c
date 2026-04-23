@@ -94,12 +94,9 @@ static sl_status_t sli_send_c1c2(uint16_t data)
     if ((rx_buffer[1] == SLI_SPI_SUCCESS) || (rx_buffer[1] == 0x00)) {
       return SL_STATUS_OK;
     }
-    osDelay(10);
-    // printf("\r\n C1/C2 RESPONSE %x %x\r\n", rx_buffer[0], rx_buffer[1]);
     // If a timeout occurs while waiting for a response, return a timeout status
-  } while (sl_si91x_host_elapsed_time(timestamp) < 100000000);
+  } while (sl_si91x_host_elapsed_time(timestamp) < 1000);
 
-  // printf("\r\n TIMEOUT WHILE WAITING FOR C1/C2 RESPONSE %x %x\r\n", rx_buffer[0], rx_buffer[1]);
   return SL_STATUS_TIMEOUT;
 }
 
@@ -277,7 +274,7 @@ sl_status_t sli_si91x_bus_write_slave(uint32_t data_length, const uint8_t *buffe
   return status;
 }
 
-sl_status_t sl_si91x_bus_read_memory(uint32_t addr, uint16_t length, uint8_t *buffer)
+sl_status_t sl_si91x_bus_read_memory(uint32_t addr, uint16_t length, const uint8_t *buffer)
 {
   //  uint8_t rx_buffer[4];
   sl_status_t status;
@@ -388,7 +385,6 @@ sl_status_t sli_si91x_bus_write_frame(sl_wifi_system_packet_t *packet, const uin
                                    SLI_FRAME_DESC_LEN,
                                    &packet->desc,
                                    NULL);
-  // printf("Wrote frame descriptor, status %d\n", status);
   SLI_SPI_VERIFY_STATUS(status);
 
   // Write payload if present
@@ -397,7 +393,6 @@ sl_status_t sli_si91x_bus_write_frame(sl_wifi_system_packet_t *packet, const uin
     size_param = (size_param + 3) & ~3;
     status =
       sli_basic_data_transfer(SLI_C1FRMWR16BIT4BYTE | (SLI_C2_READ_WRITE_SIZE << 8), size_param, &packet->data, NULL);
-    // printf("Wrote frame payload, status %d\n", status);
     SLI_SPI_VERIFY_STATUS(status);
   }
 
@@ -426,7 +421,7 @@ sl_status_t sli_si91x_bus_read_frame(sl_wifi_buffer_t **buffer)
   status = sli_si91x_host_allocate_buffer(buffer, SL_WIFI_RX_FRAME_BUFFER, local_buffer[0], 10000);
   if (status != SL_STATUS_OK) {
     sl_si91x_host_spi_cs_deassert();
-    // printf("\r\n HEAP EXHAUSTED DURING ALLOCATION \r\n");
+    SL_DEBUG_LOG("\r\n HEAP EXHAUSTED DURING ALLOCATION \r\n");
     BREAKPOINT();
   }
 
@@ -434,14 +429,11 @@ sl_status_t sli_si91x_bus_read_frame(sl_wifi_buffer_t **buffer)
 
   // Read complete RX packet
   if (local_buffer[1] == 0) {
-    // printf("Reading frame with basic data transfer, length %u\n", local_buffer[0]);
     status = sli_basic_data_transfer(SLI_C1FRMRD16BIT1BYTE | (SLI_C2SPIADDR1BYTE << 8), local_buffer[0], NULL, data);
   } else {
     status = sli_packet_read_with_dummy_data(data, local_buffer[1], local_buffer[0]);
   }
   sl_si91x_host_spi_cs_deassert();
-  // printf("Read frame data for RX frame, status %d\n", status);
-  // printf("Allocated buffer for RX frame status %d\n", status);
   return status;
 
 #else
@@ -476,7 +468,6 @@ sl_status_t sli_si91x_bus_read_interrupt_status(uint16_t *interrupt_status)
   } while (sl_si91x_host_elapsed_time(timestamp) < 1000);
 
   // If the interrupt status cannot be read within the timeout, return a timeout
-  printf("\r\n TIMEOUT WHILE READING INTERRUPT STATUS \r\n");
   return SL_STATUS_TIMEOUT;
 }
 
@@ -486,11 +477,10 @@ sl_status_t sli_si91x_bootup_firmware(const uint8_t select_option, uint8_t image
   uint32_t rom_version;
   uint32_t timestamp;
   sl_status_t status = SL_STATUS_FAIL;
-  // const uint8_t select_option = config->boot_option; //LOAD_NWP_FW;
+  //const uint8_t select_option = config->boot_option; //LOAD_NWP_FW;
   timestamp = sl_si91x_host_get_timestamp();
   do {
     if (sl_si91x_host_elapsed_time(timestamp) > SL_WIFI_BOARD_READY_WAIT_TIME) {
-      printf("\r\n TIMEOUT WHILE WAITING FOR BOARD READY \r\n");
       return SL_STATUS_TIMEOUT;
     }
     status = sli_verify_device_boot(&rom_version);
@@ -518,10 +508,7 @@ sl_status_t sli_si91x_bootup_firmware(const uint8_t select_option, uint8_t image
 
 sl_status_t sli_si91x_bus_rx_irq_handler(void)
 {
-  /* Wake the command engine thread (waits on si91x_bus_events) so it can
-   * read the pending SPI frame and dispatch the appropriate response event.
-   */
-  sl_si91x_host_set_bus_event(SL_SI91X_NCP_HOST_BUS_RX_EVENT);
+  sli_si91x_set_event(SL_SI91X_NCP_HOST_BUS_RX_EVENT);
   return SL_STATUS_OK;
 }
 
